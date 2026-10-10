@@ -1,13 +1,50 @@
 
+from contextlib import asynccontextmanager
+from eventprocessor import event_processor
+from monitor import start_monitor
 from datetime import datetime, timezone
 from pathlib import Path
+from detector import calculate_risk
 import sqlite3
 import random
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="RansomShield API")
+# The test folder is located at the project root.
+TEST_FOLDER = Path(__file__).resolve().parent.parent / "safe_test_folder"
+
+
+def handle_file_event(event_type, path):
+    result = event_processor.process_event(event_type, path)
+
+    print(
+        f"[MONITOR] {event_type.upper()} | "
+        f"File: {path} | "
+        f"Risk: {result['risk_score']} | "
+        f"Severity: {result['severity']}"
+    )
+
+    if result["reasons"]:
+        print("Reasons:", ", ".join(result["reasons"]))
+
+
+@asynccontextmanager
+async def lifespan(app):
+    observer = start_monitor(
+        TEST_FOLDER,
+        handle_file_event,
+    )
+    app.state.observer = observer
+
+    try:
+        yield
+    finally:
+        observer.stop()
+        observer.join(timeout=5)
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,22 +100,29 @@ def simulate(scenario: str):
     # Synthetic events only; no real file operations.
     
     if scenario == "normal":
-        count = random.randint(1, 3)
+        modifications = random.randint(1, 3)
+        renames = 0
+        deletions = 0
     else:
-        count = random.randint(25, 40)
+        modifications = random.randint(25, 40)
+        renames = random.randint(10, 15)
+        deletions = random.randint(10, 15)
 
-    # Detection rule: flag rapid changes affecting
-    # 20 or more simulated files.
-    if count >= 20:
-        severity = "High"
-        message = (
-            "Suspicious activity: high volume of rapid "
-            "file modifications detected."
-        )
-    else:
-        severity = "Low"
-        message = "Activity is within the normal threshold."
+    detection = calculate_risk(
+        modifications=modifications,
+        renames=renames,
+        deletions=deletions,
+    )
 
+    severity = detection["severity"]
+    risk_score = detection["risk_score"]
+    reasons = detection["reasons"]
+
+    message = (
+        ", ".join(reasons)
+        if reasons
+        else "No suspicious pattern detected"
+    )
     timestamp = datetime.now(timezone.utc).isoformat()
 
     with connect_db() as con:
