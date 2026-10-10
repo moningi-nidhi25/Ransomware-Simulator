@@ -61,17 +61,23 @@ def simulate(scenario: str):
         return {"error": "Choose normal or suspicious"}
 
     # Synthetic events only; no real file operations.
+    
     if scenario == "normal":
         count = random.randint(1, 3)
-        severity = "Low"
-        message = "Normal activity pattern"
     else:
         count = random.randint(25, 40)
+
+    # Detection rule: flag rapid changes affecting
+    # 20 or more simulated files.
+    if count >= 20:
         severity = "High"
         message = (
-            "Rapid file-modification pattern detected. "
-            "Potential ransomware-like behavior."
+            "Suspicious activity: high volume of rapid "
+            "file modifications detected."
         )
+    else:
+        severity = "Low"
+        message = "Activity is within the normal threshold."
 
     timestamp = datetime.now(timezone.utc).isoformat()
 

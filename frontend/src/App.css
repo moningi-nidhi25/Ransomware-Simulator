@@ -1,0 +1,195 @@
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0b1120;
+  color: #e5e7eb;
+  font-family: Arial, sans-serif;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.dashboard {
+  max-width: 1200px;
+  margin: auto;
+  padding: 28px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid #263244;
+  padding-bottom: 22px;
+}
+
+.brand {
+  font-size: 23px;
+  font-weight: 800;
+  color: #34d399;
+}
+
+.status {
+  color: #34d399;
+  font-size: 13px;
+}
+
+.intro {
+  padding: 35px 0 22px;
+}
+
+.eyebrow {
+  color: #34d399;
+  letter-spacing: 2px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+h1 {
+  font-size: clamp(26px, 4vw, 38px);
+  margin: 10px 0;
+}
+
+.intro p:last-child,
+.panel > p {
+  color: #9ca3af;
+  line-height: 1.6;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.stat,
+.panel {
+  background: #111c2e;
+  border: 1px solid #263244;
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.stat span {
+  display: block;
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.stat strong {
+  display: block;
+  font-size: 30px;
+  margin-top: 14px;
+}
+
+.panel {
+  margin-top: 20px;
+}
+
+.panel h2 {
+  font-size: 19px;
+  margin-top: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.actions button {
+  padding: 12px 15px;
+  border: 0;
+  border-radius: 7px;
+  background: #047857;
+  color: white;
+  font-weight: bold;
+}
+
+.actions .danger {
+  background: #b91c1c;
+}
+
+.actions .secondary {
+  background: #334155;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 650px;
+  text-align: left;
+}
+
+th,
+td {
+  padding: 14px 10px;
+  border-bottom: 1px solid #263244;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+th {
+  color: #9ca3af;
+}
+
+.high,
+.low {
+  display: inline-block;
+  padding: 5px 9px;
+  border-radius: 20px;
+  font-weight: bold;
+}
+
+.high {
+  background: #451a1a;
+  color: #fca5a5;
+}
+
+.low {
+  background: #064e3b;
+  color: #6ee7b7;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+footer {
+  text-align: center;
+  color: #9ca3af;
+  font-size: 12px;
+  padding: 28px 0;
+}
+
+@media (max-width: 650px) {
+  .dashboard {
+    padding: 16px;
+  }
+
+  .stats {
+    grid-template-columns: 1fr;
+  }
+
+  header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
