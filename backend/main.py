@@ -1,142 +1,181 @@
-
+"""RansomShield Phase 3 API. Monitoring is opt-in and restricted to backend/test_data."""
+import csv
+import io
+import os
+import random
 from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from database import (
+    init_db, insert_alert, insert_event, list_alerts, get_alert,
+    update_alert_status, list_events, get_stats, get_settings, save_settings,
+)
+from detector import calculate_risk
 from eventprocessor import event_processor
 from monitor import start_monitor
-from datetime import datetime, timezone
-from pathlib import Path
-from detector import calculate_risk
-import sqlite3
-import random
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+SAFE_FOLDER = Path(__file__).resolve().parent / "test_data"
+SAFE_FOLDER.mkdir(exist_ok=True)
+observer = None
 
-# The test folder is located at the project root.
-TEST_FOLDER = Path(__file__).resolve().parent.parent / "safe_test_folder"
+def handle_file_event(event_type, absolute_path):
+    """Persist activity only when the event originates in the dedicated test_data folder."""
+    try:
+        path = Path(absolute_path).resolve()
+        relative_path = path.relative_to(SAFE_FOLDER.resolve())
+    except (ValueError, OSError):
+        return
 
-
-def handle_file_event(event_type, path):
-    result = event_processor.process_event(event_type, path)
-
-    print(
-        f"[MONITOR] {event_type.upper()} | "
-        f"File: {path} | "
-        f"Risk: {result['risk_score']} | "
-        f"Severity: {result['severity']}"
-    )
-
-    if result["reasons"]:
-        print("Reasons:", ", ".join(result["reasons"]))
-
+    result = event_processor.process_event(event_type, str(relative_path))
+    insert_event(event_type, str(relative_path), result["risk_score"],
+                 result["severity"], result["reasons"])
+    if result["should_alert"]:
+        insert_alert(
+            scenario="file_monitor",
+            severity=result["severity"],
+            message=", ".join(result["reasons"]) or "Suspicious file activity detected",
+            files_affected=1,
+            risk_score=result["risk_score"],
+            reasons=result["reasons"],
+            source="file_monitor",
+        )
+    print(f"[MONITOR] {event_type.upper()} | {relative_path} | risk={result['risk_score']} | {result['severity']}")
 
 @asynccontextmanager
 async def lifespan(app):
-    observer = start_monitor(
-        TEST_FOLDER,
-        handle_file_event,
-    )
-    app.state.observer = observer
-
+    global observer
+    init_db()
+    # To opt in: set ENABLE_FILE_MONITOR=1. Only backend/test_data is watched.
+    if os.getenv("ENABLE_FILE_MONITOR", "0") == "1":
+        observer = start_monitor(SAFE_FOLDER, handle_file_event)
     try:
         yield
     finally:
-        observer.stop()
-        observer.join(timeout=5)
+        if observer is not None:
+            observer.stop()
+            observer.join(timeout=5)
+            observer = None
 
-
-app = FastAPI(lifespan=lifespan)
-
+app = FastAPI(title="RansomShield API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DB_PATH = Path(__file__).with_name("alerts.db")
+class StatusUpdate(BaseModel):
+    status: str
 
-
-def connect_db():
-    return sqlite3.connect(DB_PATH)
-
-
-def setup_db():
-    with connect_db() as con:
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                scenario TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                message TEXT NOT NULL,
-                files_affected INTEGER NOT NULL
-            )
-        """)
-
-
-setup_db()
-
+class SettingsUpdate(BaseModel):
+    event_window: int = Field(ge=1, le=300)
+    modification_threshold: int = Field(ge=1, le=10000)
+    rename_threshold: int = Field(ge=1, le=10000)
+    deletion_threshold: int = Field(ge=1, le=10000)
 
 @app.get("/")
 def home():
-    return {"message": "RansomShield is running"}
+    return {"message": "RansomShield is running", "docs": "/docs"}
 
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
 
 @app.get("/api/alerts")
-def get_alerts():
-    with connect_db() as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(
-            "SELECT * FROM alerts ORDER BY id DESC"
-        ).fetchall()
-        return [dict(row) for row in rows]
+def get_alerts(
+    severity: str | None = None,
+    source: str | None = None,
+    status: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    limit: int = Query(100, ge=1, le=500),
+):
+    return list_alerts(severity, source, status, start_date, end_date, limit)
 
+@app.get("/api/alerts/{alert_id}")
+def alert_detail(alert_id: int):
+    alert = get_alert(alert_id)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return alert
+
+@app.patch("/api/alerts/{alert_id}/status")
+def set_alert_status(alert_id: int, body: StatusUpdate):
+    if body.status not in {"open", "investigating", "resolved"}:
+        raise HTTPException(status_code=400, detail="Status must be open, investigating, or resolved")
+    if not update_alert_status(alert_id, body.status):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"ok": True, "id": alert_id, "status": body.status}
+
+@app.get("/api/events")
+def get_events(event_type: str | None = None, limit: int = Query(200, ge=1, le=1000)):
+    return list_events(event_type, limit)
+
+@app.get("/api/stats")
+def stats():
+    return get_stats()
+
+@app.get("/api/settings")
+def settings():
+    return get_settings()
+
+@app.put("/api/settings")
+def update_settings(body: SettingsUpdate):
+    save_settings(body.model_dump())
+    return get_settings()
 
 @app.post("/api/simulate/{scenario}")
 def simulate(scenario: str):
-    if scenario not in ("normal", "suspicious"):
-        return {"error": "Choose normal or suspicious"}
-
-    # Synthetic events only; no real file operations.
-    
+    """Generate synthetic records only; no real files are read, changed, or deleted."""
+    settings = get_settings()
     if scenario == "normal":
-        modifications = random.randint(1, 3)
-        renames = 0
-        deletions = 0
+        counts = {"modifications": random.randint(1, 3), "renames": 0, "deletions": 0}
+    elif scenario == "suspicious":
+        counts = {
+            "modifications": max(settings["modification_threshold"], 25),
+            "renames": max(settings["rename_threshold"], 10),
+            "deletions": max(settings["deletion_threshold"], 10),
+        }
     else:
-        modifications = random.randint(25, 40)
-        renames = random.randint(10, 15)
-        deletions = random.randint(10, 15)
+        raise HTTPException(status_code=400, detail="Choose 'normal' or 'suspicious'")
 
-    detection = calculate_risk(
-        modifications=modifications,
-        renames=renames,
-        deletions=deletions,
+    result = calculate_risk(
+        **counts,
+        modification_threshold=settings["modification_threshold"],
+        rename_threshold=settings["rename_threshold"],
+        deletion_threshold=settings["deletion_threshold"],
     )
-
-    severity = detection["severity"]
-    risk_score = detection["risk_score"]
-    reasons = detection["reasons"]
-
-    message = (
-        ", ".join(reasons)
-        if reasons
-        else "No suspicious pattern detected"
+    message = ", ".join(result["reasons"]) if result["reasons"] else "No suspicious pattern detected"
+    alert_id = insert_alert(
+        scenario, result["severity"], message,
+        files_affected=sum(counts.values()),
+        risk_score=result["risk_score"], reasons=result["reasons"],
+        source="simulation",
     )
-    timestamp = datetime.now(timezone.utc).isoformat()
-
-    with connect_db() as con:
-        con.execute(
-            """INSERT INTO alerts
-            (timestamp, scenario, severity, message, files_affected)
-            VALUES (?, ?, ?, ?, ?)""",
-            (timestamp, scenario, severity, message, count),
-        )
-
     return {
-        "timestamp": timestamp,
-        "scenario": scenario,
-        "severity": severity,
-        "message": message,
-        "files_affected": count,
+        "id": alert_id, "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        "scenario": scenario, **result, "message": message, "files_affected": sum(counts.values())
     }
+
+@app.get("/api/reports/export")
+def export_report():
+    records = list_alerts(limit=500)
+    output = io.StringIO()
+    fields = ["id", "timestamp", "scenario", "severity", "risk_score", "message",
+              "files_affected", "source", "status", "reasons"]
+    writer = csv.DictWriter(output, fieldnames=fields)
+    writer.writeheader()
+    for row in records:
+        row["reasons"] = "; ".join(row.get("reasons") or [])
+        writer.writerow({field: row.get(field, "") for field in fields})
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=ransomshield-alerts.csv"},
+    )
