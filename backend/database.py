@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "alerts.db"
+_active_db_path = DB_PATH
 DEFAULT_SETTINGS = {
     "event_window": 10,
     "modification_threshold": 20,
@@ -12,9 +13,19 @@ DEFAULT_SETTINGS = {
     "deletion_threshold": 10,
 }
 
+def set_db_path(path=None):
+    global _active_db_path
+    if path is None:
+        _active_db_path = DB_PATH
+    else:
+        _active_db_path = Path(path).resolve()
+
+def get_db_path():
+    return _active_db_path
+
 @contextmanager
 def get_connection():
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(get_db_path(), timeout=10)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -142,20 +153,33 @@ def get_settings():
     # Defaults allow unit tests and tools to run before the API initializes SQLite.
     try:
         with get_connection() as con:
+            con.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL
+                )
+            """)
             rows = con.execute("SELECT key, value FROM settings").fetchall()
         settings = DEFAULT_SETTINGS.copy()
-        settings.update({row["key"]: row["value"] for row in rows})
+        settings.update({row["key"]: int(row["value"]) for row in rows})
         return settings
-    except sqlite3.OperationalError:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
         return DEFAULT_SETTINGS.copy()
 
 def save_settings(settings):
     with get_connection() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL
+            )
+        """)
         for key, value in settings.items():
             con.execute("""
                 INSERT INTO settings(key, value) VALUES (?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
             """, (key, int(value)))
+    return get_settings()
 
 def get_stats():
     with get_connection() as con:

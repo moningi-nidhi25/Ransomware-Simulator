@@ -7,6 +7,13 @@ def calculate_risk(
     rename_threshold=10,
     deletion_threshold=10,
 ):
+    if modification_threshold is None:
+        modification_threshold = 20
+    if rename_threshold is None:
+        rename_threshold = 10
+    if deletion_threshold is None:
+        deletion_threshold = 10
+
     score = 0
     reasons = []
     if modifications >= modification_threshold:

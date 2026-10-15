@@ -35,3 +35,16 @@ select,input{width:100%;min-width:0;background:#0c1726;border:1px solid #2b3c52;
 .settings-form{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:12px;align-items:end}.settings-form label{min-width:0}.settings-form button{height:36px}footer{text-align:center;padding:4px 0 14px;font-size:10px;color:#667a94}
 @media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.two-column{grid-template-columns:1fr}.settings-form{grid-template-columns:repeat(2,minmax(0,1fr))}.settings-form button{grid-column:span 2}}
 @media(max-width:560px){.dashboard{padding:16px 12px}.intro{align-items:flex-start;flex-direction:column}.actions{width:100%}.actions .btn{flex:1}.panel{padding:14px}.settings-form{grid-template-columns:1fr}.settings-form button{grid-column:auto}.system-pill{font-size:0}.system-pill .pulse{font-size:initial}.stats-grid{gap:9px}.stat-card{padding:14px}.stat-card strong{font-size:25px}}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(5,11,20,0.78);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;animation:modalFadeIn .15s ease-out}
+.modal-card{background:#111d2e;border:1px solid #283d57;border-radius:14px;box-shadow:0 24px 48px rgba(0,0,0,0.65),0 0 25px rgba(98,217,193,0.18);max-width:420px;width:92%;padding:20px;animation:modalSlideUp .2s cubic-bezier(0.16,1,0.3,1)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.modal-title-wrap{display:flex;align-items:center;gap:10px}
+.modal-title-wrap h3{margin:0;font-size:16px;color:#f0f6ff;letter-spacing:-.3px}
+.modal-icon{width:26px;height:26px;border-radius:50%;background:#10332d;color:#65d9c4;border:1px solid #246559;display:grid;place-items:center;font-weight:800;font-size:13px}
+.modal-close{background:transparent;border:none;color:#8fa1b9;font-size:22px;line-height:1;padding:0 4px;cursor:pointer}
+.modal-close:hover{color:#fff}
+.modal-body{font-size:13px;color:#c9d7e8;line-height:1.5;margin:0 0 18px}
+.modal-footer{display:flex;justify-content:flex-end}
+@keyframes modalFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes modalSlideUp{from{transform:translateY(12px) scale(.96);opacity:0}to{transform:translateY(0) scale(1);opacity:1}}

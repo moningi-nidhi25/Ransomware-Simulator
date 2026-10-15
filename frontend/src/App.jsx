@@ -16,7 +16,21 @@ async function api(path, options = {}) {
   });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
-    try { message = (await response.json()).detail || message; } catch {}
+    try {
+      const data = await response.json();
+      if (typeof data.detail === "string") {
+        message = data.detail;
+      } else if (Array.isArray(data.detail)) {
+        message = data.detail
+          .map((item) => {
+            const loc = (item.loc || []).filter((x) => x !== "body").join(".");
+            return loc ? `${loc}: ${item.msg}` : item.msg;
+          })
+          .join("; ");
+      } else if (data.message) {
+        message = data.message;
+      }
+    } catch {}
     throw new Error(message);
   }
   return response.json();
@@ -37,8 +51,21 @@ export default function App() {
   const [filters, setFilters] = useState({ severity: "", source: "", status: "" });
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [modal, setModal] = useState(null);
   const [busy, setBusy] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!modal) return;
+    const timer = setTimeout(() => setModal(null), 3500);
+    return () => clearTimeout(timer);
+  }, [modal]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 4000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const load = useCallback(async () => {
     try {
@@ -92,7 +119,13 @@ export default function App() {
       const saved = await api("/api/settings", { method: "PUT", body: JSON.stringify(body) });
       setSettings(saved);
       setSettingsLoaded(true);
+      setModal({
+        title: "Settings Saved",
+        message: "Detection settings saved successfully.",
+        type: "success",
+      });
       setNotice("Detection settings saved successfully.");
+      await load();
     } catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -102,6 +135,24 @@ export default function App() {
 
   return (
     <main className="dashboard">
+      {modal && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
+          <div className={`modal-card modal-${modal.type}`} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-wrap">
+                <span className="modal-icon">{modal.type === "success" ? "✓" : "ℹ"}</span>
+                <h3>{modal.title}</h3>
+              </div>
+              <button className="modal-close" onClick={() => setModal(null)} aria-label="Close modal">×</button>
+            </div>
+            <p className="modal-body">{modal.message}</p>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={() => setModal(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="topbar">
         <div className="brand-symbol">RS</div>
         <div className="brand-copy"><div className="brand">RansomShield</div><p>Ransomware-like activity monitor</p></div>
@@ -173,6 +224,8 @@ export default function App() {
 
       <section className="panel settings-panel">
         <div className="panel-heading"><div><h2>Detection settings</h2><p>Settings are stored in SQLite and used by the detector.</p></div></div>
+        {error && <div className="notice error-notice">{error}</div>}
+        {notice && <div className="notice success-notice">{notice}</div>}
         <form className="settings-form" onSubmit={saveSettings}>
           {[
             ["event_window", "Event window (seconds)", 1, 300],
@@ -180,7 +233,10 @@ export default function App() {
             ["rename_threshold", "Rename threshold", 1, 10000],
             ["deletion_threshold", "Deletion threshold", 1, 10000],
           ].map(([key, label, min, max]) => <label key={key}>{label}<input type="number" min={min} max={max} required value={settings[key]} onChange={(e) => setSettings({ ...settings, [key]: e.target.value })} /></label>)}
-          <button className="btn btn-primary" type="submit" disabled={busy}>Save settings</button>
+          <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
+            <button className="btn btn-primary" type="submit" disabled={busy}>Save settings</button>
+            <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => setSettings(DEFAULT_SETTINGS)}>Reset to defaults</button>
+          </div>
         </form>
       </section>
 

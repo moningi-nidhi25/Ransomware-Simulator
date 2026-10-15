@@ -11,12 +11,16 @@ class EventProcessor:
         self.events = deque()
         self.lock = Lock()
 
-    def process_event(self, event_type, path=None):
+    def reset(self):
+        with self.lock:
+            self.events.clear()
+
+    def process_event(self, event_type, path=None, settings_override=None):
         event_type = event_type.lower().strip()
         if event_type not in {"modified", "renamed", "deleted", "created"}:
             raise ValueError(f"Unsupported event type: {event_type}")
 
-        settings = get_settings()
+        settings = settings_override if settings_override is not None else get_settings()
         window = int(settings.get("event_window", self.window_seconds))
         now = monotonic()
         with self.lock:

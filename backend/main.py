@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from database import (
     init_db, insert_alert, insert_event, list_alerts, get_alert,
@@ -73,10 +73,11 @@ class StatusUpdate(BaseModel):
     status: str
 
 class SettingsUpdate(BaseModel):
-    event_window: int = Field(ge=1, le=300)
-    modification_threshold: int = Field(ge=1, le=10000)
-    rename_threshold: int = Field(ge=1, le=10000)
-    deletion_threshold: int = Field(ge=1, le=10000)
+    model_config = ConfigDict(extra="forbid")
+    event_window: int = Field(ge=1, le=300, description="Sliding event window in seconds (1-300)")
+    modification_threshold: int = Field(ge=1, le=10000, description="Modification threshold (1-10000)")
+    rename_threshold: int = Field(ge=1, le=10000, description="Rename threshold (1-10000)")
+    deletion_threshold: int = Field(ge=1, le=10000, description="Deletion threshold (1-10000)")
 
 @app.get("/")
 def home():
@@ -130,16 +131,32 @@ def update_settings(body: SettingsUpdate):
     return get_settings()
 
 @app.post("/api/simulate/{scenario}")
-def simulate(scenario: str):
+def simulate(
+    scenario: str,
+    modifications: int | None = None,
+    renames: int | None = None,
+    deletions: int | None = None,
+):
     """Generate synthetic records only; no real files are read, changed, or deleted."""
+    from datetime import datetime, timezone
     settings = get_settings()
     if scenario == "normal":
-        counts = {"modifications": random.randint(1, 3), "renames": 0, "deletions": 0}
-    elif scenario == "suspicious":
         counts = {
-            "modifications": max(settings["modification_threshold"], 25),
-            "renames": max(settings["rename_threshold"], 10),
-            "deletions": max(settings["deletion_threshold"], 10),
+            "modifications": modifications if modifications is not None else 2,
+            "renames": renames if renames is not None else 0,
+            "deletions": deletions if deletions is not None else 0,
+        }
+    elif scenario == "suspicious":
+        # A synthetic suspicious burst: 15 modifications, 12 renames, 12 deletions
+        # (or custom counts if specified).
+        # Under default thresholds (20, 10, 10), renames and deletions trigger High severity (risk score 70),
+        # while modifications (15 < 20) are below threshold.
+        # Lowering modification_threshold to 15 or below triggers "High modification rate"
+        # and elevates risk score to 100 with all reasons triggered.
+        counts = {
+            "modifications": modifications if modifications is not None else 15,
+            "renames": renames if renames is not None else 12,
+            "deletions": deletions if deletions is not None else 12,
         }
     else:
         raise HTTPException(status_code=400, detail="Choose 'normal' or 'suspicious'")
@@ -158,8 +175,12 @@ def simulate(scenario: str):
         source="simulation",
     )
     return {
-        "id": alert_id, "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
-        "scenario": scenario, **result, "message": message, "files_affected": sum(counts.values())
+        "id": alert_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "scenario": scenario,
+        **result,
+        "message": message,
+        "files_affected": sum(counts.values()),
     }
 
 @app.get("/api/reports/export")
